@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "make-admin": "node scripts/make-admin.cjs"
   },
   "dependencies": {
     "@huggingface/inference": "^4.13.12",
     "@supabase/supabase-js": "^2.97.0",
+    "dotenv": "^17.3.1",
     "firebase": "^12.9.0",
     "firebase-admin": "^13.6.1",
     "lucide-react": "^0.575.0",
