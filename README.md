@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Amity AI – University Knowledge Assistant
 
-## Getting Started
+Hackathon-ready RAG MVP using Next.js, Firebase, Supabase pgvector, Hugging Face embeddings, and OpenRouter DeepSeek chat.
 
-First, run the development server:
+## Tech Stack
+
+- Next.js (App Router)
+- Firebase Authentication + Firestore
+- Supabase Postgres + pgvector
+- Hugging Face Inference API (`sentence-transformers/all-MiniLM-L6-v2`)
+- OpenRouter (`deepseek/deepseek-chat`)
+- Tailwind CSS
+
+## Project Structure
+
+```
+app/
+	login/
+	dashboard/
+	admin-upload/
+	api/
+		embed/
+		chat/
+		admin-upload/
+lib/
+	firebase.js
+	firebaseAdmin.js
+	supabase.js
+	rag.js
+	pdfParser.js
+	authServer.js
+supabase/
+	schema.sql
+```
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local` and set:
+
+```
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+FIREBASE_SERVICE_ACCOUNT=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+HUGGINGFACE_API_KEY=
+OPENROUTER_API_KEY=
+```
+
+`FIREBASE_SERVICE_ACCOUNT` must be a JSON string of the Firebase service account.
+
+## Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Run Supabase SQL in `supabase/schema.sql`.
+
+3. In Firestore, store user roles in:
+
+```
+users/{uid}
+	role: "Student" | "Admin"
+	email: string
+```
+
+4. Start dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## RAG Flow
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+1. Admin uploads PDF on `/admin-upload`.
+2. PDF text is extracted and split into 600-word chunks.
+3. Each chunk is embedded (384-dim) via Hugging Face.
+4. Chunks and vectors are stored in Supabase `documents`.
+5. User asks on `/dashboard`:
+   - question embedding generated
+   - top 3 chunks retrieved by cosine similarity
+   - context + question sent to OpenRouter DeepSeek
+   - response returned and chat history stored in Firestore
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+If no relevant chunks exist, response is:
 
-## Learn More
+`Information not available in university records.`
 
-To learn more about Next.js, take a look at the following resources:
+## Security
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Keys are only used in server routes.
+- `/api/admin-upload` enforces Firebase auth + Admin role validation.
+- Upload attempts by non-admin return `403`.
