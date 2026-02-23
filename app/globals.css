@@ -1,39 +1,88 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F4F2FA;
-  --foreground: #1E1E1E;
-  --primary-purple: #7B61FF;
-  --muted-text: #6B6B6B;
-  --card-bg: #FFFFFF;
+  /* Dark Theme Variables */
+  --bg-app: #0e0e12;
+  --bg-sidebar: #0b0b0f;
+  --bg-card: #18181b;
+  --bg-input: #0e0e12;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  
+  --accent-primary: #a855f7; /* Purple 500 */
+  --accent-glow: rgba(168, 85, 247, 0.5);
+  --border-subtle: #27272a;
+  
+  --font-sans: 'Inter', system-ui, sans-serif;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-primary: var(--primary-purple);
-  --color-muted: var(--muted-text);
-  --color-card: var(--card-bg);
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--bg-app);
+  --color-foreground: var(--text-primary);
+  --color-primary: var(--accent-primary);
+  --color-card: var(--bg-card);
+  --color-border: var(--border-subtle);
+  
+  --font-sans: var(--font-sans);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg-app);
+  color: var(--text-primary);
   font-family: var(--font-sans);
+  overflow: hidden; /* Prevent body scroll, handle in containers */
 }
 
-/* Custom Scrollbar */
+/* Glassmorphism Utilities */
+.glass {
+  background: rgba(14, 14, 18, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-card {
+  background: linear-gradient(145deg, rgba(24, 24, 27, 0.6) 0%, rgba(14, 14, 18, 0.8) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(168, 85, 247, 0.1);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.glow-text {
+  text-shadow: 0 0 20px rgba(168, 85, 247, 0.5);
+}
+
+/* Custom Scrollbar for Dark Mode */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #D1C4E9;
-  border-radius: 10px;
+  background: #27272a;
+  border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: #B39DDB;
+  background: #3f3f46;
+}
+
+/* Markdown Styles Override */
+.prose code {
+  color: #d8b4fe !important;
+  background-color: #27272a !important;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  font-weight: 400;
+}
+
+.prose pre {
+  background-color: #18181b !important;
+  border: 1px solid #27272a;
 }
