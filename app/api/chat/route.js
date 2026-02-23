@@ -20,10 +20,29 @@ export async function POST(request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { question } = await request.json();
+    const { question, conversationId } = await request.json();
 
     if (!question || typeof question !== "string") {
       return NextResponse.json({ error: "question is required" }, { status: 400 });
+    }
+
+    const db = getAdminDb();
+    const userRef = db.collection("users").doc(user.uid);
+
+    // Resolve or create conversation
+    let convId = conversationId;
+
+    if (!convId) {
+      const convRef = await userRef.collection("conversations").add({
+        title: question.length > 50 ? question.slice(0, 50) + "…" : question,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      convId = convRef.id;
+    } else {
+      await userRef.collection("conversations").doc(convId).update({
+        updatedAt: FieldValue.serverTimestamp(),
+      });
     }
 
     let answer = FALLBACK_ANSWER;
@@ -44,9 +63,9 @@ export async function POST(request) {
       );
     }
 
-    const messagesRef = getAdminDb()
-      .collection("users")
-      .doc(user.uid)
+    const messagesRef = userRef
+      .collection("conversations")
+      .doc(convId)
       .collection("messages");
 
     await messagesRef.add({
@@ -63,6 +82,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       answer,
+      conversationId: convId,
       sources: chunks.map((chunk) => chunk.content),
     });
   } catch (error) {
