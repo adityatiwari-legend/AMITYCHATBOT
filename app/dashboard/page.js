@@ -456,8 +456,13 @@ export default function DashboardPage() {
     if (!question.trim() || !user || loading) return;
 
     const input = question.trim();
+    const isNewChat = !activeConvId;
     setQuestion("");
     setLoading(true);
+
+    // Optimistically show the user's message on the current page immediately
+    const optimisticUserMsg = { id: "opt-user-" + Date.now(), role: "user", content: input };
+    setMessages((prev) => [...prev, optimisticUserMsg]);
 
     try {
       const idToken = await user.getIdToken();
@@ -477,12 +482,24 @@ export default function DashboardPage() {
 
       if (!response.ok) throw new Error(data.error || "Failed to fetch");
 
-      // If new conversation was created, set it active
-      if (!activeConvId && data.conversationId) {
+      // If this was a new conversation, add the assistant reply optimistically
+      // before switching to the Firestore listener (avoids a flash of empty state)
+      if (isNewChat && data.conversationId) {
+        const optimisticAssistantMsg = {
+          id: "opt-assistant-" + Date.now(),
+          role: "assistant",
+          content: data.answer,
+        };
+        setMessages((prev) => [...prev, optimisticAssistantMsg]);
         setActiveConvId(data.conversationId);
       }
     } catch (err) {
       console.error(err);
+      // On error, show a failure message in the chat
+      setMessages((prev) => [
+        ...prev,
+        { id: "opt-err-" + Date.now(), role: "assistant", content: "Sorry, something went wrong. Please try again." },
+      ]);
     } finally {
       setLoading(false);
     }
