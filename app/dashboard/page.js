@@ -25,6 +25,7 @@ import {
   Mic,
   MicOff,
   Pause,
+  Play,
   Send,
   User,
   ShieldAlert,
@@ -450,6 +451,7 @@ export default function DashboardPage() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isVoicePaused, setIsVoicePaused] = useState(false);
   const [isVoiceSessionActive, setIsVoiceSessionActive] = useState(false);
   const messagesEndRef = useRef(null);
   const messagesUnsubRef = useRef(null);
@@ -461,6 +463,11 @@ export default function DashboardPage() {
 
   const stopVoicePlayback = useCallback(() => {
     stopVoiceRequestedRef.current = true;
+
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
     const audio = voiceAudioRef.current;
     if (audio) {
       audio.pause();
@@ -482,7 +489,43 @@ export default function DashboardPage() {
     }
 
     setIsSpeaking(false);
+    setIsVoicePaused(false);
     setIsVoiceSessionActive(false);
+  }, []);
+
+  const togglePauseVoicePlayback = useCallback(() => {
+    const audio = voiceAudioRef.current;
+    if (audio) {
+      if (audio.paused) {
+        audio
+          .play()
+          .then(() => {
+            setIsVoicePaused(false);
+            setIsSpeaking(true);
+          })
+          .catch(() => {});
+      } else {
+        audio.pause();
+        setIsVoicePaused(true);
+        setIsSpeaking(false);
+      }
+      return;
+    }
+
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+      setIsVoicePaused(false);
+      setIsSpeaking(true);
+      return;
+    }
+
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.pause();
+      setIsVoicePaused(true);
+      setIsSpeaking(false);
+    }
   }, []);
 
   const playAudioBlob = useCallback((blob) => {
@@ -493,6 +536,7 @@ export default function DashboardPage() {
       voiceAudioRef.current = audio;
       voiceSegmentResolveRef.current = resolve;
       setIsSpeaking(true);
+      setIsVoicePaused(false);
 
       audio.onended = () => {
         if (voiceAudioUrlRef.current) {
@@ -501,6 +545,7 @@ export default function DashboardPage() {
         }
         voiceAudioRef.current = null;
         voiceSegmentResolveRef.current = null;
+        setIsVoicePaused(false);
         resolve();
       };
 
@@ -512,6 +557,7 @@ export default function DashboardPage() {
         voiceAudioRef.current = null;
         voiceSegmentResolveRef.current = null;
         setIsSpeaking(false);
+        setIsVoicePaused(false);
         reject(new Error("Audio playback failed"));
       };
 
@@ -523,6 +569,7 @@ export default function DashboardPage() {
         voiceAudioRef.current = null;
         voiceSegmentResolveRef.current = null;
         setIsSpeaking(false);
+        setIsVoicePaused(false);
         reject(error);
       });
     });
@@ -569,6 +616,22 @@ export default function DashboardPage() {
         utterance.lang = languageCode === "hi" ? "hi-IN" : "en-IN";
         utterance.rate = 1.02;
         utterance.pitch = 1;
+
+        utterance.onstart = () => {
+          setIsSpeaking(true);
+          setIsVoicePaused(false);
+        };
+        utterance.onend = () => {
+          setIsSpeaking(false);
+          setIsVoicePaused(false);
+          setIsVoiceSessionActive(false);
+        };
+        utterance.onerror = () => {
+          setIsSpeaking(false);
+          setIsVoicePaused(false);
+          setIsVoiceSessionActive(false);
+        };
+
         window.speechSynthesis.speak(utterance);
       };
 
@@ -587,18 +650,17 @@ export default function DashboardPage() {
 
         if (!ttsResponse.ok) {
           fallbackSpeak();
-          setIsSpeaking(false);
-          setIsVoiceSessionActive(false);
           return;
         }
 
         const audioBlob = await ttsResponse.blob();
         await playAudioBlob(audioBlob);
+
+        setIsSpeaking(false);
+        setIsVoicePaused(false);
+        setIsVoiceSessionActive(false);
       } catch {
         fallbackSpeak();
-      } finally {
-        setIsSpeaking(false);
-        setIsVoiceSessionActive(false);
       }
     },
     [playAudioBlob, stopVoicePlayback],
@@ -954,12 +1016,12 @@ export default function DashboardPage() {
                 {(isVoiceSessionActive || isListening || isSpeaking) && (
                   <button
                     type="button"
-                    onClick={stopVoicePlayback}
-                    disabled={!isSpeaking}
+                    onClick={togglePauseVoicePlayback}
+                    disabled={!isSpeaking && !isVoicePaused}
                     className="flex h-8 w-8 items-center justify-center rounded-full text-[#71717A] transition-colors hover:bg-[#27272A] hover:text-white disabled:opacity-40 disabled:hover:bg-transparent"
-                    title="Pause voice output"
+                    title={isVoicePaused ? "Resume voice output" : "Pause voice output"}
                   >
-                    <Pause size={18} />
+                    {isVoicePaused ? <Play size={18} /> : <Pause size={18} />}
                   </button>
                 )}
 
