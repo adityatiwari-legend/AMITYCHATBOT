@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  /* Dark Theme Variables */
+  --bg-app: #0e0e12;
+  --bg-sidebar: #0b0b0f;
+  --bg-card: #18181b;
+  --bg-input: #0e0e12;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  
+  --accent-primary: #a855f7; /* Purple 500 */
+  --accent-glow: rgba(168, 85, 247, 0.5);
+  --border-subtle: #27272a;
+  
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--bg-app);
+  --color-foreground: var(--text-primary);
+  --color-primary: var(--accent-primary);
+  --color-card: var(--bg-card);
+  --color-border: var(--border-subtle);
+  
+  --font-sans: var(--font-sans);
+}
+
+html {
+  overflow-y: auto;
+  height: auto;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  overflow-y: auto;
+  min-height: 100vh;
+}
+
+/* Glassmorphism Utilities */
+.glass {
+  background: rgba(14, 14, 18, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-card {
+  background: linear-gradient(145deg, rgba(24, 24, 27, 0.6) 0%, rgba(14, 14, 18, 0.8) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(168, 85, 247, 0.1);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.glow-text {
+  text-shadow: 0 0 20px rgba(168, 85, 247, 0.5);
+}
+
+/* Custom Scrollbar for Dark Mode */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* Markdown Styles Override */
+.prose code {
+  color: #d8b4fe !important;
+  background-color: #27272a !important;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  font-weight: 400;
+}
+
+.prose pre {
+  background-color: #18181b !important;
+  border: 1px solid #27272a;
+}
