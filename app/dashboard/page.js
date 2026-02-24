@@ -321,6 +321,18 @@ export default function DashboardPage() {
   const messagesUnsubRef = useRef(null);
   const convsUnsubRef = useRef(null);
 
+  // Voice Card State
+  const [showVoiceCard, setShowVoiceCard] = useState(true);
+
+  useEffect(() => {
+    if (showVoiceCard) {
+      const timer = setTimeout(() => {
+        setShowVoiceCard(false);
+      }, 120000); // 2 minutes
+      return () => clearTimeout(timer);
+    }
+  }, [showVoiceCard]);
+
   // Voice
   const handleVoiceResult = useCallback((transcript) => {
     setQuestion((q) => (q ? q + " " + transcript : transcript));
@@ -419,6 +431,7 @@ export default function DashboardPage() {
     setActiveConvId(null);
     setMessages([]);
     setQuestion("");
+    setShowVoiceCard(true);
   };
 
   const handleSelectConv = (convId) => {
@@ -523,6 +536,22 @@ export default function DashboardPage() {
       />
 
       <main className="relative flex flex-1 flex-col transition-all duration-300 md:ml-[280px]">
+        {/* Voice Card */}
+        <AnimatePresence>
+          {showVoiceCard && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="fixed top-6 right-6 z-50 max-w-xs rounded-2xl border border-white/20 bg-white/10 p-4 shadow-[0_8px_32px_0_rgba(31,38,135,0.37)] backdrop-blur-md"
+            >
+              <p className="text-center text-xs font-semibold leading-relaxed tracking-wide text-white/90">
+                VOICE ASSISTANCE WILL BE INTRODUCE IN FUTURE UPDATE IF PROJECT WILL SELECTED
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Mobile Header */}
         <header className="flex h-16 items-center justify-between border-b border-[#1E1E24] px-4 md:hidden">
           <div className="flex items-center gap-2">
