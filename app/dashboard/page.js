@@ -24,6 +24,7 @@ import {
   LogOut,
   Mic,
   MicOff,
+  Pause,
   Send,
   User,
   ShieldAlert,
@@ -257,9 +258,123 @@ function MessageBubble({ role, content }) {
 
 // ─── Voice Input Hook ────────────────────────────────────
 
-function useVoiceInput(onResult) {
+function useVoiceInput(onResult, onVoiceActivity) {
   const [isListening, setIsListening] = useState(false);
+  const [voiceLevel, setVoiceLevel] = useState(0);
   const recognitionRef = useRef(null);
+  const onResultRef = useRef(onResult);
+  const onVoiceActivityRef = useRef(onVoiceActivity);
+  const mediaStreamRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const vadIntervalRef = useRef(null);
+  const lastVoiceTsRef = useRef(0);
+  const hasDetectedSpeechRef = useRef(false);
+  const isStoppingRef = useRef(false);
+
+  useEffect(() => {
+    onResultRef.current = onResult;
+  }, [onResult]);
+
+  useEffect(() => {
+    onVoiceActivityRef.current = onVoiceActivity;
+  }, [onVoiceActivity]);
+
+  const cleanupVad = useCallback(() => {
+    if (vadIntervalRef.current) {
+      window.clearInterval(vadIntervalRef.current);
+      vadIntervalRef.current = null;
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+
+    analyserRef.current = null;
+    lastVoiceTsRef.current = 0;
+    hasDetectedSpeechRef.current = false;
+    setVoiceLevel(0);
+  }, []);
+
+  const stopListening = useCallback(() => {
+    const rec = recognitionRef.current;
+    if (!rec || isStoppingRef.current) return;
+    isStoppingRef.current = true;
+    rec.stop();
+    setIsListening(false);
+    cleanupVad();
+    window.setTimeout(() => {
+      isStoppingRef.current = false;
+    }, 200);
+  }, [cleanupVad]);
+
+  const startVad = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      mediaStreamRef.current = stream;
+
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContextClass();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+
+      audioContextRef.current = audioContext;
+      analyserRef.current = analyser;
+
+      const samples = new Uint8Array(analyser.fftSize);
+      const VAD_THRESHOLD = 0.06;
+      const SILENCE_TIMEOUT_MS = 1200;
+
+      vadIntervalRef.current = window.setInterval(() => {
+        const currentAnalyser = analyserRef.current;
+        if (!currentAnalyser) return;
+
+        currentAnalyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const value = (samples[i] - 128) / 128;
+          sum += value * value;
+        }
+
+        const rms = Math.sqrt(sum / samples.length);
+        const normalized = Math.min(1, rms / 0.2);
+        setVoiceLevel(normalized);
+
+        if (rms > VAD_THRESHOLD) {
+          lastVoiceTsRef.current = Date.now();
+          hasDetectedSpeechRef.current = true;
+          if (onVoiceActivityRef.current) {
+            onVoiceActivityRef.current();
+          }
+        }
+
+        if (
+          hasDetectedSpeechRef.current &&
+          lastVoiceTsRef.current > 0 &&
+          Date.now() - lastVoiceTsRef.current > SILENCE_TIMEOUT_MS
+        ) {
+          stopListening();
+        }
+      }, 100);
+    } catch {
+      setVoiceLevel(0);
+    }
+  }, [stopListening]);
 
   useEffect(() => {
     const SpeechRecognition =
@@ -269,36 +384,53 @@ function useVoiceInput(onResult) {
     if (!SpeechRecognition) return;
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.lang = "en-US";
 
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      if (transcript) onResult(transcript);
-      setIsListening(false);
+      const result = event.results[event.results.length - 1];
+      const transcript = result?.[0]?.transcript;
+      if (result?.isFinal) {
+        if (transcript && onResultRef.current) onResultRef.current(transcript);
+        stopListening();
+      }
     };
 
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => {
+      setIsListening(false);
+      cleanupVad();
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      cleanupVad();
+    };
 
     recognitionRef.current = recognition;
-  }, [onResult]);
+    return () => {
+      cleanupVad();
+    };
+  }, [cleanupVad, stopListening]);
 
   const toggle = useCallback(() => {
     const rec = recognitionRef.current;
     if (!rec) return;
 
     if (isListening) {
-      rec.stop();
-      setIsListening(false);
+      stopListening();
     } else {
       rec.start();
       setIsListening(true);
+      startVad();
     }
-  }, [isListening]);
+  }, [isListening, startVad, stopListening]);
 
-  return { isListening, toggle, supported: !!recognitionRef.current };
+  return {
+    isListening,
+    voiceLevel,
+    toggle,
+    stopListening,
+  };
 }
 
 // ─── Main Page ───────────────────────────────────────────
@@ -317,9 +449,166 @@ export default function DashboardPage() {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isVoiceSessionActive, setIsVoiceSessionActive] = useState(false);
   const messagesEndRef = useRef(null);
   const messagesUnsubRef = useRef(null);
   const convsUnsubRef = useRef(null);
+  const voiceAudioRef = useRef(null);
+  const voiceAudioUrlRef = useRef(null);
+  const voiceSegmentResolveRef = useRef(null);
+  const stopVoiceRequestedRef = useRef(false);
+
+  const stopVoicePlayback = useCallback(() => {
+    stopVoiceRequestedRef.current = true;
+    const audio = voiceAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.onended = null;
+      audio.onerror = null;
+      voiceAudioRef.current = null;
+    }
+
+    if (voiceAudioUrlRef.current) {
+      URL.revokeObjectURL(voiceAudioUrlRef.current);
+      voiceAudioUrlRef.current = null;
+    }
+
+    if (voiceSegmentResolveRef.current) {
+      const resolve = voiceSegmentResolveRef.current;
+      voiceSegmentResolveRef.current = null;
+      resolve();
+    }
+
+    setIsSpeaking(false);
+    setIsVoiceSessionActive(false);
+  }, []);
+
+  const playAudioBlob = useCallback((blob) => {
+    return new Promise((resolve, reject) => {
+      const audioUrl = URL.createObjectURL(blob);
+      voiceAudioUrlRef.current = audioUrl;
+      const audio = new Audio(audioUrl);
+      voiceAudioRef.current = audio;
+      voiceSegmentResolveRef.current = resolve;
+      setIsSpeaking(true);
+
+      audio.onended = () => {
+        if (voiceAudioUrlRef.current) {
+          URL.revokeObjectURL(voiceAudioUrlRef.current);
+          voiceAudioUrlRef.current = null;
+        }
+        voiceAudioRef.current = null;
+        voiceSegmentResolveRef.current = null;
+        resolve();
+      };
+
+      audio.onerror = () => {
+        if (voiceAudioUrlRef.current) {
+          URL.revokeObjectURL(voiceAudioUrlRef.current);
+          voiceAudioUrlRef.current = null;
+        }
+        voiceAudioRef.current = null;
+        voiceSegmentResolveRef.current = null;
+        setIsSpeaking(false);
+        reject(new Error("Audio playback failed"));
+      };
+
+      audio.play().catch((error) => {
+        if (voiceAudioUrlRef.current) {
+          URL.revokeObjectURL(voiceAudioUrlRef.current);
+          voiceAudioUrlRef.current = null;
+        }
+        voiceAudioRef.current = null;
+        voiceSegmentResolveRef.current = null;
+        setIsSpeaking(false);
+        reject(error);
+      });
+    });
+  }, []);
+
+  const detectVoiceLanguage = useCallback((text) => {
+    const input = text || "";
+    const hasDevanagari = /[\u0900-\u097F]/.test(input);
+    const lower = input.toLowerCase();
+    const romanHindiHints = [
+      "kya",
+      "hai",
+      "ka",
+      "ki",
+      "ke",
+      "nahi",
+      "haan",
+      "kab",
+      "kahan",
+      "kaise",
+      "kitna",
+    ];
+    const hintHits = romanHindiHints.filter((hint) => lower.includes(hint)).length;
+
+    if (hasDevanagari) return "hi";
+    if (hintHits >= 2) return "hinglish";
+    return "en";
+  }, []);
+
+  const speakVoiceAnswer = useCallback(
+    async (answer, idToken, languageCode) => {
+      const cleaned = (answer || "").trim();
+      if (!cleaned) return;
+
+      stopVoiceRequestedRef.current = false;
+      stopVoicePlayback();
+      stopVoiceRequestedRef.current = false;
+
+      const model = languageCode === "hi" ? "facebook/mms-tts-hin" : "facebook/mms-tts-eng";
+      const fallbackSpeak = () => {
+        if (typeof window === "undefined" || !window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(cleaned);
+        utterance.lang = languageCode === "hi" ? "hi-IN" : "en-IN";
+        utterance.rate = 1.02;
+        utterance.pitch = 1;
+        window.speechSynthesis.speak(utterance);
+      };
+
+      try {
+        const ttsResponse = await fetch("/api/tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            text: cleaned,
+            model,
+          }),
+        });
+
+        if (!ttsResponse.ok) {
+          fallbackSpeak();
+          setIsSpeaking(false);
+          setIsVoiceSessionActive(false);
+          return;
+        }
+
+        const audioBlob = await ttsResponse.blob();
+        await playAudioBlob(audioBlob);
+      } catch {
+        fallbackSpeak();
+      } finally {
+        setIsSpeaking(false);
+        setIsVoiceSessionActive(false);
+      }
+    },
+    [playAudioBlob, stopVoicePlayback],
+  );
+
+  useEffect(() => {
+    return () => {
+      stopVoicePlayback();
+    };
+  }, [stopVoicePlayback]);
 
   // Voice Card State
   const [showVoiceCard, setShowVoiceCard] = useState(true);
@@ -334,11 +623,22 @@ export default function DashboardPage() {
   }, [showVoiceCard]);
 
   // Voice
-  const handleVoiceResult = useCallback((transcript) => {
-    setQuestion((q) => (q ? q + " " + transcript : transcript));
-  }, []);
-  const { isListening, toggle: toggleVoice } =
-    useVoiceInput(handleVoiceResult);
+  const handleVoiceResult = (transcript) => {
+    setIsVoiceSessionActive(true);
+    handleAsk(null, transcript, true);
+  };
+  const handleVoiceActivity = useCallback(() => {
+    if (isSpeaking) {
+      stopVoicePlayback();
+    }
+  }, [isSpeaking, stopVoicePlayback]);
+
+  const {
+    isListening,
+    voiceLevel,
+    toggle: toggleVoice,
+    stopListening,
+  } = useVoiceInput(handleVoiceResult, handleVoiceActivity);
 
   // ── Auth & Conversations List ──────────────────────────
   useEffect(() => {
@@ -423,11 +723,14 @@ export default function DashboardPage() {
   // ── Handlers ──────────────────────────────────────────
 
   const handleSignOut = async () => {
+    stopVoicePlayback();
     await signOut(getClientAuth());
     router.replace("/login");
   };
 
   const handleNewChat = () => {
+    stopListening();
+    stopVoicePlayback();
     setActiveConvId(null);
     setMessages([]);
     setQuestion("");
@@ -464,11 +767,11 @@ export default function DashboardPage() {
     }
   };
 
-  const handleAsk = async (e) => {
-    e.preventDefault();
-    if (!question.trim() || !user || loading) return;
+  const handleAsk = async (e, overrideInput = null, isVoice = false) => {
+    if (e) e.preventDefault();
+    const input = (overrideInput || question).trim();
+    if (!input || !user || loading) return;
 
-    const input = question.trim();
     const isNewChat = !activeConvId;
     setQuestion("");
     setLoading(true);
@@ -479,6 +782,8 @@ export default function DashboardPage() {
 
     try {
       const idToken = await user.getIdToken();
+      const voiceLanguage = isVoice ? detectVoiceLanguage(input) : undefined;
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -488,12 +793,18 @@ export default function DashboardPage() {
         body: JSON.stringify({
           question: input,
           conversationId: activeConvId || undefined,
+          isVoice: isVoice,
+          voiceLanguage,
         }),
       });
 
       const data = await response.json();
 
       if (!response.ok) throw new Error(data.error || "Failed to fetch");
+
+      if (isVoice && data.answer) {
+        await speakVoiceAnswer(data.answer, idToken, voiceLanguage);
+      }
 
       // If this was a new conversation, add the assistant reply optimistically
       // before switching to the Firestore listener (avoids a flash of empty state)
@@ -669,6 +980,18 @@ export default function DashboardPage() {
                   {isListening ? <MicOff size={18} /> : <Mic size={18} />}
                 </button>
 
+                {(isVoiceSessionActive || isListening || isSpeaking) && (
+                  <button
+                    type="button"
+                    onClick={stopVoicePlayback}
+                    disabled={!isSpeaking}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-[#71717A] transition-colors hover:bg-[#27272A] hover:text-white disabled:opacity-40 disabled:hover:bg-transparent"
+                    title="Pause voice output"
+                  >
+                    <Pause size={18} />
+                  </button>
+                )}
+
                 <button
                   type="submit"
                   disabled={!question.trim() || loading}
@@ -682,6 +1005,25 @@ export default function DashboardPage() {
                 </button>
               </div>
             </form>
+            {isListening && (
+              <div className="mt-3 flex items-center justify-center gap-2 text-[12px] text-[#A1A1AA]">
+                <span>Listening...</span>
+                <div className="flex items-end gap-1">
+                  <span
+                    className="h-2 w-1 rounded-full bg-[#A855F7]/80 transition-all"
+                    style={{ height: `${8 + Math.round(16 * voiceLevel)}px` }}
+                  />
+                  <span
+                    className="h-2 w-1 rounded-full bg-[#A855F7]/70 transition-all"
+                    style={{ height: `${8 + Math.round(12 * voiceLevel)}px` }}
+                  />
+                  <span
+                    className="h-2 w-1 rounded-full bg-[#A855F7]/60 transition-all"
+                    style={{ height: `${8 + Math.round(18 * voiceLevel)}px` }}
+                  />
+                </div>
+              </div>
+            )}
             <div className="mt-3 text-center text-[11px] text-[#52525B] select-none">
               AI can make mistakes. Verify important information.
             </div>
